@@ -147,7 +147,6 @@ except:
 
 rpn_optimizer = Adam(lr=1e-5)
 class_optimizer = Adam(lr=1e-5)
-# model_rpn.compile(optimizer=rpn_optimizer, loss=[loss_funcs.rpn_loss_cls(num_anchors), loss_funcs.rpn_loss_regr(num_anchors)])
 
 # RPN losses
 rpn_cls_loss = loss_funcs.rpn_loss_cls(num_anchors)
@@ -157,10 +156,10 @@ rpn_regr_loss = loss_funcs.rpn_loss_regr(num_anchors)
 class_cls_loss = loss_funcs.class_loss_cls
 class_regr_loss = loss_funcs.class_loss_regr(len(classes_count)-1)
 
-# model_classifier.compile(optimizer=optimizer_classifier, loss=[loss_funcs.class_loss_cls, loss_funcs.class_loss_regr(len(classes_count)-1)], metrics={f'dense_class_{len(classes_count)}': 'accuracy'})
+
 model_all.compile(optimizer='sgd', loss='mae')
 
-epoch_length = 1000
+epoch_length = 10
 num_epochs = int(options.num_epochs)
 iter_num = 0
 
@@ -176,7 +175,8 @@ print('Starting training')
 
 vis = True
 
-# @tf.function
+class_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+
 def train_step(X, Y, img_data):
 
 	Y = [tf.cast(Y[0], 'float32'), tf.cast(Y[1], 'float32')]
@@ -238,9 +238,13 @@ def train_step(X, Y, img_data):
 	# Train the classification model
 	with tf.GradientTape() as tape:
 		P_class = model_classifier([X, X2[:, sel_samples, :]])
-		loss_class_0 = class_cls_loss(Y1[:, sel_samples, :], P_class[0])
-		loss_class_1 = class_regr_loss(Y2[:, sel_samples, :], P_class[1])
-	loss_class = [loss_class_0, loss_class_1]
+		loss_class_0 = class_cls_loss(Y1[:, sel_samples, :], P_class[0]) # classifiation loss
+		loss_class_1 = class_regr_loss(Y2[:, sel_samples, :], P_class[1]) # regression loss
+	
+	# Update classification accuracy metric
+	class_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+
+	loss_class = [loss_class_0, loss_class_1, class_acc_metric.result()]
 	grads = tape.gradient([loss_class_0, loss_class_1], model_classifier.trainable_weights)
 	class_optimizer.apply_gradients(zip(grads, model_classifier.trainable_weights))
 
@@ -250,7 +254,7 @@ def train_step(X, Y, img_data):
 for epoch_num in range(num_epochs):
 
 	progbar = Progbar(epoch_length)
-	print(f'Epoch {epoch_num + 1}/{num_epochs}')
+	print(f'\nEpoch {epoch_num + 1}/{num_epochs}')
 
 	while True:
 		# try:
@@ -282,6 +286,9 @@ for epoch_num in range(num_epochs):
 		iter_num += 1
 		
 		if iter_num == epoch_length:
+			# Reset metric at the end of each epoch
+			class_acc_metric.reset_states()
+
 			loss_rpn_cls = np.mean(losses[:, 0])
 			loss_rpn_regr = np.mean(losses[:, 1])
 			loss_class_cls = np.mean(losses[:, 2])
@@ -292,7 +299,7 @@ for epoch_num in range(num_epochs):
 			rpn_accuracy_for_epoch = []
 
 			if C.verbose:
-				print(f'Mean number of bounding boxes from RPN overlapping ground truth boxes: {mean_overlapping_boxes}')
+				print(f'\nMean number of bounding boxes from RPN overlapping ground truth boxes: {mean_overlapping_bboxes}')
 				print(f'Classifier accuracy for bounding boxes from RPN: {class_acc}')
 				print(f'Loss RPN classifier: {loss_rpn_cls}')
 				print(f'Loss RPN regression: {loss_rpn_regr}')
@@ -308,7 +315,7 @@ for epoch_num in range(num_epochs):
 				if C.verbose:
 					print(f'Total loss decreased from {best_loss} to {curr_loss}, saving weights')
 				best_loss = curr_loss
-			model_all.save_weights(model_path_regex.group(1) + "_" + '{:04d}'.format(epoch_num) + model_path_regex.group(2))
+				model_all.save_weights("model_weights/" + C.model_path)
 
 			break
 
