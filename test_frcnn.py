@@ -11,17 +11,9 @@ from keras_frcnn import config
 from keras import backend as K
 from keras.layers import Input
 from keras.models import Model
-from keras.backend.tensorflow_backend import set_session
 from keras_frcnn import roi_helpers
 
 sys.setrecursionlimit(40000)
-
-config = tf.ConfigProto()
-config.gpu_options.allow_growth = True
-config.log_device_placement = True
-sess = tf.Session(config=config)
-set_session(sess)
-
 parser = OptionParser()
 
 parser.add_option("-p", "--path", dest="test_path", help="Path to test data.")
@@ -114,12 +106,9 @@ if C.network == 'resnet50':
 elif C.network == 'vgg':
 	num_features = 512
 
-if K.common.image_dim_ordering() == 'th':
-	input_shape_img = (3, None, None)
-	input_shape_features = (num_features, None, None)
-else:
-	input_shape_img = (None, None, 3)
-	input_shape_features = (None, None, num_features)
+
+input_shape_img = (None, None, 3)
+input_shape_features = (None, None, num_features)
 
 
 img_input = Input(shape=input_shape_img)
@@ -141,8 +130,8 @@ model_classifier_only = Model([feature_map_input, roi_input], classifier)
 model_classifier = Model([feature_map_input, roi_input], classifier)
 
 print(f'Loading weights from {C.model_path}')
-model_rpn.load_weights(C.model_path, by_name=True)
-model_classifier.load_weights(C.model_path, by_name=True)
+model_rpn.load_weights("model_weights/" + C.model_path, by_name=True)
+model_classifier.load_weights("model_weights/" + C.model_path, by_name=True)
 
 model_rpn.compile(optimizer='sgd', loss='mse')
 model_classifier.compile(optimizer='sgd', loss='mse')
@@ -165,15 +154,12 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	img = cv2.imread(filepath)
 
 	X, ratio = format_img(img, C)
-
-	if K.common.image_dim_ordering() == 'tf':
-		X = np.transpose(X, (0, 2, 3, 1))
+	X = np.transpose(X, (0, 2, 3, 1))
 
 	# get the feature maps and output from the RPN
-	[Y1, Y2, F] = model_rpn.predict(X)
-	
+	[Y1, Y2, F] = model_rpn.predict(X)	
 
-	R = roi_helpers.rpn_to_roi(Y1, Y2, C, K.common.image_dim_ordering(), overlap_thresh=0.7)
+	R = roi_helpers.rpn_to_roi(Y1, Y2, C, 'tf', overlap_thresh=0.7)
 
 	# convert from (x1,y1,x2,y2) to (x,y,w,h)
 	R[:, 2] -= R[:, 0]
@@ -248,9 +234,9 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 			cv2.rectangle(img, (textOrg[0] - 5,textOrg[1]+baseLine - 5), (textOrg[0]+retval[0] + 5, textOrg[1]-retval[1] - 5), (255, 255, 255), -1)
 			cv2.putText(img, textLabel, textOrg, cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 1)
 
-	print(f'Elapsed time = {time.time() - st)}'
+	print(f'Elapsed time = {time.time() - st}')
 	print(all_dets)
 
-	
-	cv2.imwrite('./results_imgs-fp-mappen-test/{}.png'.format(os.path.splitext(str(img_name))[0]),img)
+	cv2.imshow("predicted", img)
+	cv2.waitKey(0)
 
