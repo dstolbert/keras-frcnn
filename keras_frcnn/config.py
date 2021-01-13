@@ -1,4 +1,3 @@
-from keras import backend as K
 import math
 
 class Config:
@@ -6,6 +5,7 @@ class Config:
 	def __init__(self):
 
 		self.verbose = True
+		self.seed = 1337
 
 		self.network = 'resnet50'
 
