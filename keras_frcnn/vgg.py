@@ -12,10 +12,6 @@ from tensorflow.keras import backend as K
 from keras_frcnn.RoiPoolingConv import RoiPoolingConv
 
 
-def get_weight_path():
-    return 'vgg16_weights_tf_dim_ordering_tf_kernels.h5'
-
-
 def get_img_output_length(width, height):
     def get_output_length(input_length):
         return input_length//16

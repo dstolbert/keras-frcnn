@@ -7,7 +7,14 @@ class Config:
 		self.verbose = True
 		self.seed = 1337
 
-		self.network = 'resnet50'
+		# Hardcode some params to save me from passing through command line every time
+		self.network = 'vgg'
+		self.base_net_weights = 'model_weights/vgg_base.h5'
+		self.data_dir = '../data/faster_rcnn.txt'
+		self.VGG_BASE = 'model_weights/vgg_base.h5'
+		self.RESNET_BASE = 'model_weights/resnet_base.h5'
+		self.epochs = 1000
+		self.epoch_length = 1000
 
 		# setting for data augmentation
 		self.use_horizontal_flips = False
