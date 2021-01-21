@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 
+base_dir = "../data/TableBank/Detection/images/"
+
 def get_data(input_path):
 	found_bg = False
 	all_imgs = {}
@@ -8,8 +10,6 @@ def get_data(input_path):
 	classes_count = {}
 
 	class_mapping = {}
-
-	visualise = True
 	
 	with open(input_path,'r') as f:
 
@@ -23,10 +23,15 @@ def get_data(input_path):
 			try:
 				line_split = line.strip().split(',')
 				(filename,x1,y1,x2,y2,class_name) = line_split
+
+				if len(filename.split('/')) != 12:
+					continue
+
+				filename = base_dir + filename.split('/')[-1]
+
 			except ValueError:
 				print(f"Could not parse line {i}: " + line)
 				continue
-
 			if class_name not in classes_count:
 				classes_count[class_name] = 1
 			else:

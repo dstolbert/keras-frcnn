@@ -13,6 +13,21 @@ from keras.layers import Input
 from keras.models import Model
 from keras_frcnn import roi_helpers
 
+import matplotlib.pyplot as plt
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  # Restrict TensorFlow to only allocate 8GB of memory on the first GPU
+  try:
+    tf.config.experimental.set_virtual_device_configuration(
+        gpus[0],
+        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=8*1024)])
+    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+  except RuntimeError as e:
+    # Virtual devices must be set before GPUs have been initialized
+    print(e)
+
 sys.setrecursionlimit(40000)
 parser = OptionParser()
 
@@ -27,8 +42,7 @@ parser.add_option("--network", dest="network", help="Base network to use. Suppor
 (options, args) = parser.parse_args()
 
 if not options.test_path:   # if filename is not given
-	parser.error('Error: path to test data must be specified. Pass --path to command line')
-
+	options.test_path = "../data/TableBank/Detection/images/"
 
 config_output_filename = options.config_filename
 
@@ -129,9 +143,12 @@ model_classifier_only = Model([feature_map_input, roi_input], classifier)
 
 model_classifier = Model([feature_map_input, roi_input], classifier)
 
+# OVERRIDE config
+C.model_path = "model_weights/model_frcnn_v0.hdf5"
+
 print(f'Loading weights from {C.model_path}')
-model_rpn.load_weights("model_weights/" + C.model_path, by_name=True)
-model_classifier.load_weights("model_weights/" + C.model_path, by_name=True)
+model_rpn.load_weights(C.model_path, by_name=True)
+model_classifier.load_weights(C.model_path, by_name=True)
 
 model_rpn.compile(optimizer='sgd', loss='mse')
 model_classifier.compile(optimizer='sgd', loss='mse')
@@ -144,9 +161,13 @@ bbox_threshold = 0.8
 
 visualise = True
 
-for idx, img_name in enumerate(sorted(os.listdir(img_path))):
+imgs = os.listdir(img_path)
+import random
+for idx, img_name in enumerate(imgs):
 	if not img_name.lower().endswith(('.bmp', '.jpeg', '.jpg', '.png', '.tif', '.tiff')):
 		continue
+
+	img_name = random.sample(imgs, 1)[0]
 	print(img_name)
 	st = time.time()
 	filepath = os.path.join(img_path,img_name)
@@ -237,6 +258,6 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	print(f'Elapsed time = {time.time() - st}')
 	print(all_dets)
 
-	cv2.imshow("predicted", img)
-	cv2.waitKey(0)
+	plt.imshow(img)
+	plt.show()
 

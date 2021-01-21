@@ -21,6 +21,19 @@ from keras_frcnn import config, data_generators
 from keras_frcnn import losses as loss_funcs
 import keras_frcnn.roi_helpers as roi_helpers
 
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  # Restrict TensorFlow to only allocate 8GB of memory on the first GPU
+  try:
+    tf.config.experimental.set_virtual_device_configuration(
+        gpus[0],
+        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=8*1024)])
+    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+  except RuntimeError as e:
+    # Virtual devices must be set before GPUs have been initialized
+    print(e)
+
 
 sys.setrecursionlimit(40000)
 
@@ -152,7 +165,6 @@ rpn_regr_loss = loss_funcs.rpn_loss_regr(num_anchors)
 class_cls_loss = loss_funcs.class_loss_cls
 class_regr_loss = loss_funcs.class_loss_regr(len(classes_count)-1)
 
-
 model_all.compile(optimizer='sgd', loss='mae')
 
 epoch_length = C.epoch_length
@@ -171,7 +183,20 @@ print('Starting training')
 
 vis = True
 
-class_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+# METRICS
+train_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+val_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+
+def f1_metric(y_pred, y_true):
+    # y_true = y_true[:, :, 1:]
+    # y_pred = y_pred[:, :, 1:]
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    recall = true_positives / (possible_positives + K.epsilon())
+    f1_val = 2 * (precision * recall) / (precision + recall + K.epsilon())
+    return f1_val
 
 def train_step(X, Y, img_data):
 
@@ -188,7 +213,7 @@ def train_step(X, Y, img_data):
 
 	R = roi_helpers.rpn_to_roi(P_rpn[0].numpy(), P_rpn[1].numpy(), C, "tf", use_regr=True, overlap_thresh=0.7, max_boxes=300)
 	# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
-	X2, Y1, Y2, IouS = roi_helpers.calc_iou(R, img_data, C, class_mapping)
+	X2, Y1, Y2, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
 	if X2 is None:
 		rpn_accuracy_rpn_monitor.append(0)
@@ -238,14 +263,85 @@ def train_step(X, Y, img_data):
 		loss_class_1 = class_regr_loss(Y2[:, sel_samples, :], P_class[1]) # regression loss
 	
 	# Update classification accuracy metric
-	class_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+	train_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
 
-	loss_class = [loss_class_0, loss_class_1, class_acc_metric.result()]
+	loss_class = [loss_class_0, loss_class_1, train_acc_metric.result()]
 	grads = tape.gradient([loss_class_0, loss_class_1], model_classifier.trainable_weights)
 	class_optimizer.apply_gradients(zip(grads, model_classifier.trainable_weights))
 
 	return loss_rpn, loss_class
 
+
+# Get validation accuracy after each epoch
+def computeValidation():
+
+	f1s = np.zeros((len(val_imgs)))
+	for i,_ in enumerate(val_imgs):
+
+		X, Y, img_data = next(data_gen_val)
+		
+		# RPN
+		P_rpn = model_rpn(X)
+
+		R = roi_helpers.rpn_to_roi(P_rpn[0].numpy(), P_rpn[1].numpy(), C, "tf", use_regr=True, overlap_thresh=0.7, max_boxes=300)
+		# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
+		X2, Y1, _, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
+
+		if X2 is None:
+			rpn_accuracy_rpn_monitor.append(0)
+			rpn_accuracy_for_epoch.append(0)
+			return loss_rpn, []
+
+		neg_samples = np.where(Y1[0, :, -1] == 1)
+		pos_samples = np.where(Y1[0, :, -1] == 0)
+
+		if len(neg_samples) > 0:
+			neg_samples = neg_samples[0]
+		else:
+			neg_samples = []
+
+		if len(pos_samples) > 0:
+			pos_samples = pos_samples[0]
+		else:
+			pos_samples = []
+		
+		rpn_accuracy_rpn_monitor.append(len(pos_samples))
+		rpn_accuracy_for_epoch.append((len(pos_samples)))
+
+		if C.num_rois > 1:
+			if len(pos_samples) < C.num_rois//2:
+				selected_pos_samples = pos_samples.tolist()
+			else:
+				selected_pos_samples = np.random.choice(pos_samples, C.num_rois//2, replace=False).tolist()
+			try:
+				selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=False).tolist()
+			except:
+				selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=True).tolist()
+
+			sel_samples = selected_pos_samples + selected_neg_samples
+		else:
+			# in the extreme case where num_rois = 1, we pick a random pos or neg sample
+			selected_pos_samples = pos_samples.tolist()
+			selected_neg_samples = neg_samples.tolist()
+			if np.random.randint(0, 2):
+				sel_samples = random.choice(neg_samples)
+			else:
+				sel_samples = random.choice(pos_samples)
+
+		# Classification model
+		P_class = model_classifier([X, X2[:, sel_samples, :]])
+		
+		# Update classification accuracy metric
+		val_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+		f1s[i] = f1_metric(P_class[0], Y1[:, sel_samples, :])
+
+	# Get result and reset metric
+	res = val_acc_metric.result()
+	val_acc_metric.reset_states()
+
+	return res, np.mean(f1s)
+
+best_val_f1 = 0.0
 # TRAINING LOOP
 for epoch_num in range(num_epochs):
 
@@ -253,7 +349,6 @@ for epoch_num in range(num_epochs):
 	print(f'\nEpoch {epoch_num + 1}/{num_epochs}')
 
 	while True:
-		# try:
 
 		if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
 			mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
@@ -283,20 +378,23 @@ for epoch_num in range(num_epochs):
 		
 		if iter_num == epoch_length:
 			# Reset metric at the end of each epoch
-			class_acc_metric.reset_states()
+			train_acc_metric.reset_states()
 
 			loss_rpn_cls = np.mean(losses[:, 0])
 			loss_rpn_regr = np.mean(losses[:, 1])
 			loss_class_cls = np.mean(losses[:, 2])
 			loss_class_regr = np.mean(losses[:, 3])
 			class_acc = np.mean(losses[:, 4])
+			val_acc, val_f1 = computeValidation()
 
 			mean_overlapping_bboxes = float(sum(rpn_accuracy_for_epoch)) / len(rpn_accuracy_for_epoch)
 			rpn_accuracy_for_epoch = []
 
 			if C.verbose:
 				print(f'\nMean number of bounding boxes from RPN overlapping ground truth boxes: {mean_overlapping_bboxes}')
-				print(f'Classifier accuracy for bounding boxes from RPN: {class_acc}')
+				print(f'Training accuracy for bounding boxes from RPN: {class_acc}')
+				print(f'Validation accuracy for bounding boxes from RPN: {val_acc}')
+				print(f'Validation F1 for bounding boxes from RPN: {val_f1}')
 				print(f'Loss RPN classifier: {loss_rpn_cls}')
 				print(f'Loss RPN regression: {loss_rpn_regr}')
 				print(f'Loss Detector classifier: {loss_class_cls}')
@@ -307,16 +405,11 @@ for epoch_num in range(num_epochs):
 			iter_num = 0
 			start_time = time.time()
 
-			if curr_loss < best_loss:
-				if C.verbose:
-					print(f'Total loss decreased from {best_loss} to {curr_loss}, saving weights')
-				best_loss = curr_loss
+			# Use best val acc for saving model
+			if val_f1 > best_val_f1:
+				best_val_f1 = val_f1
 				model_all.save_weights(C.model_path)
 
 			break
-
-		# except Exception as e:
-		# 	print(f'Exception during training epoch: {e}')
-		# 	continue
 
 print('Training complete, exiting.')
