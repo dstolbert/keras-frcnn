@@ -14,7 +14,7 @@ class Config:
 		self.VGG_BASE = 'model_weights/vgg_base.h5'
 		self.RESNET_BASE = 'model_weights/resnet_base.h5'
 		self.epochs = 1000
-		self.epoch_length = 1000
+		self.epoch_length = 150000
 
 		# setting for data augmentation
 		self.use_horizontal_flips = False

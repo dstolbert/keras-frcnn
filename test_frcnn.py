@@ -42,7 +42,8 @@ parser.add_option("--network", dest="network", help="Base network to use. Suppor
 (options, args) = parser.parse_args()
 
 if not options.test_path:   # if filename is not given
-	options.test_path = "../data/TableBank/Detection/images/"
+	# options.test_path = "../data/TableBank/Detection/images/"
+	options.test_path = "./test/"
 
 config_output_filename = options.config_filename
 
@@ -144,7 +145,7 @@ model_classifier_only = Model([feature_map_input, roi_input], classifier)
 model_classifier = Model([feature_map_input, roi_input], classifier)
 
 # OVERRIDE config
-C.model_path = "model_weights/model_frcnn_v0.hdf5"
+C.model_path = "model_weights/model_frcnn.hdf5"
 
 print(f'Loading weights from {C.model_path}')
 model_rpn.load_weights(C.model_path, by_name=True)
@@ -167,7 +168,7 @@ for idx, img_name in enumerate(imgs):
 	if not img_name.lower().endswith(('.bmp', '.jpeg', '.jpg', '.png', '.tif', '.tiff')):
 		continue
 
-	img_name = random.sample(imgs, 1)[0]
+	# img_name = random.sample(imgs, 1)[0]
 	print(img_name)
 	st = time.time()
 	filepath = os.path.join(img_path,img_name)
@@ -258,6 +259,7 @@ for idx, img_name in enumerate(imgs):
 	print(f'Elapsed time = {time.time() - st}')
 	print(all_dets)
 
-	plt.imshow(img)
-	plt.show()
+	# plt.imshow(img)
+	# plt.show()
+	plt.imsave("./test/pred_" + str(idx) + ".png", img)
 

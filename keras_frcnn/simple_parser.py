@@ -17,8 +17,8 @@ def get_data(input_path):
 
 		for i,line in enumerate(f):
 
-			if i == 100:
-				break
+			# if i == 100:
+			# 	break
 
 			try:
 				line_split = line.strip().split(',')

@@ -341,7 +341,7 @@ def computeValidation():
 
 	return res, np.mean(f1s)
 
-best_val_f1 = 0.0
+best_loss = 100000000
 # TRAINING LOOP
 for epoch_num in range(num_epochs):
 
@@ -350,66 +350,71 @@ for epoch_num in range(num_epochs):
 
 	while True:
 
-		if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
-			mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
-			rpn_accuracy_rpn_monitor = []
-			print(f'Average number of overlapping bounding boxes from RPN = {mean_overlapping_bboxes} for {epoch_length} previous iterations')
-			if mean_overlapping_bboxes == 0:
-				print('RPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
+		try:
+
+			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
+				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
+				rpn_accuracy_rpn_monitor = []
+				print(f'Average number of overlapping bounding boxes from RPN = {mean_overlapping_bboxes} for {epoch_length} previous iterations')
+				if mean_overlapping_bboxes == 0:
+					print('RPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
 
 
-		X, Y, img_data = next(data_gen_train)
-		loss_rpn, loss_class = train_step(X, Y, img_data)
+			X, Y, img_data = next(data_gen_train)
+			loss_rpn, loss_class = train_step(X, Y, img_data)
 
-		if len(loss_class) == 0:
-			continue
+			if len(loss_class) == 0:
+				continue
 
-		losses[iter_num, 0] = loss_rpn[0]
-		losses[iter_num, 1] = loss_rpn[1]
+			losses[iter_num, 0] = loss_rpn[0]
+			losses[iter_num, 1] = loss_rpn[1]
 
-		losses[iter_num, 2] = loss_class[0]
-		losses[iter_num, 3] = loss_class[1]
-		losses[iter_num, 4] = loss_class[2]
+			losses[iter_num, 2] = loss_class[0]
+			losses[iter_num, 3] = loss_class[1]
+			losses[iter_num, 4] = loss_class[2]
 
-		progbar.update(iter_num+1, [('rpn_cls', losses[iter_num, 0]), ('rpn_regr', losses[iter_num, 1]),
-									('detector_cls', losses[iter_num, 2]), ('detector_regr', losses[iter_num, 3])])
+			progbar.update(iter_num+1, [('rpn_cls', losses[iter_num, 0]), ('rpn_regr', losses[iter_num, 1]),
+										('detector_cls', losses[iter_num, 2]), ('detector_regr', losses[iter_num, 3])])
 
-		iter_num += 1
-		
-		if iter_num == epoch_length:
-			# Reset metric at the end of each epoch
-			train_acc_metric.reset_states()
+			iter_num += 1
+			
+			if iter_num == epoch_length:
+				# Reset metric at the end of each epoch
+				train_acc_metric.reset_states()
 
-			loss_rpn_cls = np.mean(losses[:, 0])
-			loss_rpn_regr = np.mean(losses[:, 1])
-			loss_class_cls = np.mean(losses[:, 2])
-			loss_class_regr = np.mean(losses[:, 3])
-			class_acc = np.mean(losses[:, 4])
-			val_acc, val_f1 = computeValidation()
+				loss_rpn_cls = np.mean(losses[:, 0])
+				loss_rpn_regr = np.mean(losses[:, 1])
+				loss_class_cls = np.mean(losses[:, 2])
+				loss_class_regr = np.mean(losses[:, 3])
+				class_acc = np.mean(losses[:, 4])
+				val_acc, val_f1 = computeValidation()
 
-			mean_overlapping_bboxes = float(sum(rpn_accuracy_for_epoch)) / len(rpn_accuracy_for_epoch)
-			rpn_accuracy_for_epoch = []
+				mean_overlapping_bboxes = float(sum(rpn_accuracy_for_epoch)) / len(rpn_accuracy_for_epoch)
+				rpn_accuracy_for_epoch = []
 
-			if C.verbose:
-				print(f'\nMean number of bounding boxes from RPN overlapping ground truth boxes: {mean_overlapping_bboxes}')
-				print(f'Training accuracy for bounding boxes from RPN: {class_acc}')
-				print(f'Validation accuracy for bounding boxes from RPN: {val_acc}')
-				print(f'Validation F1 for bounding boxes from RPN: {val_f1}')
-				print(f'Loss RPN classifier: {loss_rpn_cls}')
-				print(f'Loss RPN regression: {loss_rpn_regr}')
-				print(f'Loss Detector classifier: {loss_class_cls}')
-				print(f'Loss Detector regression: {loss_class_regr}')
-				print(f'Elapsed time: {time.time() - start_time}')
+				if C.verbose:
+					print(f'\nMean number of bounding boxes from RPN overlapping ground truth boxes: {mean_overlapping_bboxes}')
+					print(f'Training accuracy for bounding boxes from RPN: {class_acc}')
+					print(f'Validation accuracy for bounding boxes from RPN: {val_acc}')
+					print(f'Validation F1 for bounding boxes from RPN: {val_f1}')
+					print(f'Loss RPN classifier: {loss_rpn_cls}')
+					print(f'Loss RPN regression: {loss_rpn_regr}')
+					print(f'Loss Detector classifier: {loss_class_cls}')
+					print(f'Loss Detector regression: {loss_class_regr}')
+					print(f'Elapsed time: {time.time() - start_time}')
 
-			curr_loss = loss_rpn_cls + loss_rpn_regr + loss_class_cls + loss_class_regr
-			iter_num = 0
-			start_time = time.time()
+				curr_loss = loss_rpn_cls + loss_rpn_regr + loss_class_cls + loss_class_regr
+				iter_num = 0
+				start_time = time.time()
 
-			# Use best val acc for saving model
-			if val_f1 > best_val_f1:
-				best_val_f1 = val_f1
-				model_all.save_weights(C.model_path)
+				# Use best val acc for saving model
+				if curr_loss < best_loss:
+					best_loss= curr_loss
+					model_all.save_weights(C.model_path)
 
+				break
+		except:
+			model_all.save_weights("model_weights/emergency_model_frcnn.hdf5")
 			break
 
 print('Training complete, exiting.')
