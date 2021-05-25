@@ -1,15 +1,14 @@
 from __future__ import division
 import os
 import cv2
-import numpy as np
 import sys
-import pickle
-from optparse import OptionParser
 import time
+import numpy as np
+from typing import Any
 import tensorflow as tf
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
-from keras_frcnn import roi_helpers
+from keras_frcnn import roi_helpers, config
 
 import matplotlib.pyplot as plt
 
@@ -27,38 +26,27 @@ if gpus:
     print(e)
 
 sys.setrecursionlimit(40000)
-parser = OptionParser()
 
-parser.add_option("-p", "--path", dest="test_path", help="Path to test data.")
-parser.add_option("-n", "--num_rois", type="int", dest="num_rois",
-				help="Number of ROIs per iteration. Higher means more memory use.", default=32)
-parser.add_option("--config_filename", dest="config_filename", help=
-				"Location to read the metadata related to the training (generated when training).",
-				default="config.pickle")
-parser.add_option("--network", dest="network", help="Base network to use. Supports vgg or resnet50.", default='resnet50')
 
-(options, args) = parser.parse_args()
+C = config.Config("./config.json")
 
-if not options.test_path:   # if filename is not given
-	options.test_path = "/home/aptus/Clients/Pinetree/Stax/signature_detection/Tobacco800_SinglePage/SinglePageTIF/"
-	# options.test_path = "./test/"
+# Ensure we have a train path specified
+if not C.train_path:
+	print(f"Invalid training path specified {C.train_path}")
+	raise ValueError
 
-config_output_filename = options.config_filename
-
-with open(config_output_filename, 'rb') as f_in:
-	C = pickle.load(f_in)
-
+nn: Any = None
 if C.network == 'resnet50':
-	import keras_frcnn.resnet as nn
+	from keras_frcnn import resnet
+	nn = resnet
 elif C.network == 'vgg':
-	import keras_frcnn.vgg as nn
+	from keras_frcnn import vgg
+	nn = vgg
 
 # turn off any data augmentation at test time
 C.use_horizontal_flips = False
 C.use_vertical_flips = False
 C.rot_90 = False
-
-img_path = options.test_path
 
 def format_img_size(img, C):
 	""" formats the image size based on config """
@@ -106,13 +94,13 @@ def get_real_coordinates(ratio, x1, y1, x2, y2):
 
 class_mapping = C.class_mapping
 
-if 'bg' not in class_mapping:
-	class_mapping['bg'] = len(class_mapping)
+if not class_mapping or 'bg' not in class_mapping:
+	print(f"No class mapping provided. Unable to parse outputs of model")
+	raise ValueError
 
 class_mapping = {v: k for k, v in class_mapping.items()}
 print(class_mapping)
 class_to_color = {class_mapping[v]: np.random.randint(0, 255, 3) for v in class_mapping}
-C.num_rois = int(options.num_rois)
 
 if C.network == 'resnet50':
 	num_features = 1024
@@ -142,8 +130,8 @@ model_classifier_only = Model([feature_map_input, roi_input], classifier)
 
 model_classifier = Model([feature_map_input, roi_input], classifier)
 
-# OVERRIDE config
-C.model_path = "model_weights/model_frcnn.hdf5"
+# # OVERRIDE config
+# C.model_path = "model_weights/model_frcnn.hdf5"
 
 print(f'Loading weights from {C.model_path}')
 model_rpn.load_weights(C.model_path, by_name=True)
@@ -152,24 +140,19 @@ model_classifier.load_weights(C.model_path, by_name=True)
 model_rpn.compile(optimizer='sgd', loss='mse')
 model_classifier.compile(optimizer='sgd', loss='mse')
 
-all_imgs = []
-
-classes = {}
 
 bbox_threshold = 0.8
 
 visualise = True
 
-imgs = os.listdir(img_path)
-import random
+imgs = os.listdir(C.test_path)
 for idx, img_name in enumerate(imgs):
 	if not img_name.lower().endswith(('.bmp', '.jpeg', '.jpg', '.png', '.tif', '.tiff')):
 		continue
 
-	# img_name = random.sample(imgs, 1)[0]
 	print(img_name)
 	st = time.time()
-	filepath = os.path.join(img_path,img_name)
+	filepath = os.path.join(C.test_path, img_name)
 
 	img = cv2.imread(filepath)
 
@@ -186,8 +169,8 @@ for idx, img_name in enumerate(imgs):
 	R[:, 3] -= R[:, 1]
 
 	# apply the spatial pyramid pooling to the proposed regions
-	bboxes = {}
-	probs = {}
+	bboxes: dict = {}
+	probs: dict = {}
 
 	for jk in range(R.shape[0]//C.num_rois + 1):
 		ROIs = np.expand_dims(R[C.num_rois*jk:C.num_rois*(jk+1), :], axis=0)
@@ -257,7 +240,8 @@ for idx, img_name in enumerate(imgs):
 	print(f'Elapsed time = {time.time() - st}')
 	print(all_dets)
 
-	# plt.imshow(img)
-	# plt.show()
+	plt.imshow(img)
+	plt.show()
+
 	plt.imsave("./test/pred_" + str(idx) + ".png", img)
 

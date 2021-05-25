@@ -94,3 +94,7 @@ ENV/
 # Pickle
 *.pickle
 *.pk
+
+# Config files
+config.json
+test/*

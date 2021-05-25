@@ -3,7 +3,6 @@
 # Reference
 - [Very Deep Convolutional Networks for Large-Scale Image Recognition](https://arxiv.org/abs/1409.1556)
 """
-import warnings
 
 from tensorflow.keras.layers import Flatten, Dense, Input, Conv2D, MaxPooling2D, Dropout
 from tensorflow.keras.layers import TimeDistributed

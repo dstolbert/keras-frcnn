@@ -1,11 +1,11 @@
-import re
 import sys
 import time
-import pickle
 import random
 import pprint
 import numpy as np
-from optparse import OptionParser
+from math import inf
+from typing import Any
+from scipy.sparse import construct
 from sklearn.model_selection import train_test_split
 
 # TF
@@ -14,13 +14,15 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.utils import Progbar
-from tensorflow.keras.optimizers import Adam, SGD, RMSprop
+from tensorflow.keras.optimizers import Adam
 
 # Internal
 from keras_frcnn import config, data_generators
 from keras_frcnn import losses as loss_funcs
 import keras_frcnn.roi_helpers as roi_helpers
+from keras_frcnn.simple_parser import get_data
 
+# Limit GPU access if
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
   # Restrict TensorFlow to only allocate 8GB of memory on the first GPU
@@ -37,65 +39,27 @@ if gpus:
 
 sys.setrecursionlimit(40000)
 
-parser = OptionParser()
-
-parser.add_option("-p", "--path", dest="train_path", help="Path to training data.")
-parser.add_option("-o", "--parser", dest="parser", help="Parser to use. One of simple or pascal_voc",
-				default="simple")
-parser.add_option("-n", "--num_rois", type="int", dest="num_rois", help="Number of RoIs to process at once.", default=32)
-parser.add_option("--network", dest="network", help="Base network to use. Supports vgg or resnet50.", default='vgg')
-parser.add_option("--hf", dest="horizontal_flips", help="Augment with horizontal flips in training. (Default=false).", action="store_true", default=False)
-parser.add_option("--vf", dest="vertical_flips", help="Augment with vertical flips in training. (Default=false).", action="store_true", default=False)
-parser.add_option("--rot", "--rot_90", dest="rot_90", help="Augment with 90 degree rotations in training. (Default=false).",
-				  action="store_true", default=False)
-parser.add_option("--num_epochs", type="int", dest="num_epochs", help="Number of epochs.", default=2000)
-parser.add_option("--config_filename", dest="config_filename", help=
-				"Location to store all the metadata related to the training (to be used when testing).",
-				default="config.pickle")
-parser.add_option("--output_weight_path", dest="output_weight_path", help="Output path for weights.", default='./model_weights/model_frcnn.hdf5')
-parser.add_option("--input_weight_path", dest="input_weight_path", help="Input path for weights. If not specified, will try to load default weights provided by keras.")
-
-(options, args) = parser.parse_args()
-
 # pass the settings from the command line, and persist them in the config object
-C = config.Config()
+C = config.Config("./config.json")
 
-if not options.train_path:   # if filename is not given
-	options.train_path = C.data_dir
-
-if options.parser == 'pascal_voc':
-	from keras_frcnn.pascal_voc_parser import get_data
-elif options.parser == 'simple':
-	from keras_frcnn.simple_parser import get_data
-else:
-	raise ValueError("Command line option parser must be one of 'pascal_voc' or 'simple'")
-
-
-
-C.use_horizontal_flips = bool(options.horizontal_flips)
-C.use_vertical_flips = bool(options.vertical_flips)
-C.rot_90 = bool(options.rot_90)
-
-C.model_path = options.output_weight_path
-model_path_regex = re.match("^(.+)(\.hdf5)$", C.model_path)
-if model_path_regex.group(2) != '.hdf5':
-	print('Output weights must have .hdf5 filetype')
-	exit(1)
-C.num_rois = int(options.num_rois)
-
-if options.network == 'vgg':
-	C.network = 'vgg'
-	C.base_net_weights = C.VGG_BASE
-	from keras_frcnn import vgg as nn
-elif options.network == 'resnet50':
-	from keras_frcnn import resnet as nn
-	C.network = 'resnet50'
-	C.base_net_weights = C.RESNET_BASE
-else:
-	print('Not a valid model')
+# Ensure we have a train path specified
+if not C.train_path:
+	print(f"Invalid training path specified {C.train_path}")
 	raise ValueError
 
-all_imgs, classes_count, class_mapping = get_data(options.train_path)
+# load model
+nn: Any = None
+if C.network == "vgg":
+	from keras_frcnn import vgg
+	nn = vgg
+elif C.network == "resnet":
+	from keras_frcnn import resnet
+	nn = resnet
+else:
+	print(f"Not a valid model: {C.network}")
+	raise ValueError
+
+all_imgs, classes_count, class_mapping = get_data(C.train_path)
 train_imgs, val_imgs = train_test_split(all_imgs, test_size=0.2, random_state=C.seed)
 
 if 'bg' not in classes_count:
@@ -104,17 +68,13 @@ if 'bg' not in classes_count:
 
 C.class_mapping = class_mapping
 
+print(class_mapping)
+
 inv_map = {v: k for k, v in class_mapping.items()}
 
 print('Training images per class:')
 pprint.pprint(classes_count)
 print(f'Num classes (including bg) = {len(classes_count)}')
-
-config_output_filename = options.config_filename
-
-with open(config_output_filename, 'wb') as config_f:
-	pickle.dump(C,config_f)
-	print(f'Config has been written to {config_output_filename}, and can be loaded when testing to ensure correct results')
 
 random.shuffle(train_imgs)
 
@@ -123,8 +83,16 @@ num_imgs = len(train_imgs)
 print(f'Num train samples {len(train_imgs)}')
 print(f'Num val samples {len(val_imgs)}')
 
-data_gen_train = data_generators.get_anchor_gt(train_imgs, classes_count, C, nn.get_img_output_length, "tf", mode='train')
-data_gen_val = data_generators.get_anchor_gt(val_imgs, classes_count, C, nn.get_img_output_length,"tf", mode='val')
+data_gen_train = data_generators.get_anchor_gt(
+	train_imgs, classes_count, C, 
+	nn.get_img_output_length, "tf",
+	mode='train'
+)
+data_gen_val = data_generators.get_anchor_gt(
+	val_imgs, classes_count, C, 
+	nn.get_img_output_length,"tf", 
+	mode='val'
+)
 
 input_shape_img = (None, None, 3)
 
@@ -341,7 +309,7 @@ def computeValidation():
 
 	return res, np.mean(f1s)
 
-best_loss = 100000000
+best_loss = inf
 # TRAINING LOOP
 for epoch_num in range(num_epochs):
 
@@ -355,9 +323,9 @@ for epoch_num in range(num_epochs):
 			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
 				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
 				rpn_accuracy_rpn_monitor = []
-				print(f'Average number of overlapping bounding boxes from RPN = {mean_overlapping_bboxes} for {epoch_length} previous iterations')
+				print(f'\nAverage number of overlapping bounding boxes from RPN = {mean_overlapping_bboxes} for {epoch_length} previous iterations')
 				if mean_overlapping_bboxes == 0:
-					print('RPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
+					print('\nRPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
 
 
 			X, Y, img_data = next(data_gen_train)
