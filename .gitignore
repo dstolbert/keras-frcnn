@@ -97,4 +97,6 @@ ENV/
 
 # Config files
 config.json
-test/*
+
+# Test images
+*.png
