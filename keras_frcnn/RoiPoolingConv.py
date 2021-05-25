@@ -1,10 +1,6 @@
-from keras.engine.topology import Layer
-import keras.backend as K
+import tensorflow as tf
 
-if K.backend() == 'tensorflow':
-    import tensorflow as tf
-
-class RoiPoolingConv(Layer):
+class RoiPoolingConv(tf.keras.layers.Layer):
     '''ROI pooling layer for 2D inputs.
     See Spatial Pyramid Pooling in Deep Convolutional Networks for Visual Recognition,
     K. He, X. Zhang, S. Ren, J. Sun
@@ -53,7 +49,7 @@ class RoiPoolingConv(Layer):
         img = x[0]
         rois = x[1]
 
-        input_shape = K.shape(img)
+        input_shape = tf.shape(img)
 
         outputs = []
 
@@ -80,38 +76,38 @@ class RoiPoolingConv(Layer):
                         y1 = y + jy * col_length
                         y2 = y1 + col_length
 
-                        x1 = K.cast(x1, 'int32')
-                        x2 = K.cast(x2, 'int32')
-                        y1 = K.cast(y1, 'int32')
-                        y2 = K.cast(y2, 'int32')
+                        x1 = tf.cast(x1, 'int32')
+                        x2 = tf.cast(x2, 'int32')
+                        y1 = tf.cast(y1, 'int32')
+                        y2 = tf.cast(y2, 'int32')
 
-                        x2 = x1 + K.maximum(1,x2-x1)
-                        y2 = y1 + K.maximum(1,y2-y1)
+                        x2 = x1 + tf.maximum(1,x2-x1)
+                        y2 = y1 + tf.maximum(1,y2-y1)
                         
                         new_shape = [input_shape[0], input_shape[1],
                                      y2 - y1, x2 - x1]
 
                         x_crop = img[:, :, y1:y2, x1:x2]
-                        xm = K.reshape(x_crop, new_shape)
-                        pooled_val = K.max(xm, axis=(2, 3))
+                        xm = tf.reshape(x_crop, new_shape)
+                        pooled_val = tf.max(xm, axis=(2, 3))
                         outputs.append(pooled_val)
 
             elif self.dim_ordering == 'tf':
-                x = K.cast(x, 'int32')
-                y = K.cast(y, 'int32')
-                w = K.cast(w, 'int32')
-                h = K.cast(h, 'int32')
+                x = tf.cast(x, 'int32')
+                y = tf.cast(y, 'int32')
+                w = tf.cast(w, 'int32')
+                h = tf.cast(h, 'int32')
 
                 rs = tf.image.resize(img[:, y:y+h, x:x+w, :], (self.pool_size, self.pool_size))
                 outputs.append(rs)
 
-        final_output = K.concatenate(outputs, axis=0)
-        final_output = K.reshape(final_output, (1, self.num_rois, self.pool_size, self.pool_size, self.nb_channels))
+        final_output = tf.keras.layers.concatenate(outputs, axis=0)
+        final_output = tf.reshape(final_output, (1, self.num_rois, self.pool_size, self.pool_size, self.nb_channels))
 
         if self.dim_ordering == 'th':
-            final_output = K.permute_dimensions(final_output, (0, 1, 4, 2, 3))
+            final_output = tf.keras.backend.permute_dimensions(final_output, (0, 1, 4, 2, 3))
         else:
-            final_output = K.permute_dimensions(final_output, (0, 1, 2, 3, 4))
+            final_output = tf.keras.backend.permute_dimensions(final_output, (0, 1, 2, 3, 4))
 
         return final_output
     

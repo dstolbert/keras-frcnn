@@ -5,9 +5,8 @@
 """
 import warnings
 
-from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Flatten, Dense, Input, Conv2D, MaxPooling2D, Dropout
-from tensorflow.keras.layers import GlobalAveragePooling2D, GlobalMaxPooling2D, TimeDistributed
+from tensorflow.keras.layers import TimeDistributed
 from tensorflow.keras import backend as K
 from keras_frcnn.RoiPoolingConv import RoiPoolingConv
 

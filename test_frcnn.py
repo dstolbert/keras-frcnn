@@ -7,10 +7,8 @@ import pickle
 from optparse import OptionParser
 import time
 import tensorflow as tf
-from keras_frcnn import config
-from keras import backend as K
-from keras.layers import Input
-from keras.models import Model
+from tensorflow.keras.layers import Input
+from tensorflow.keras.models import Model
 from keras_frcnn import roi_helpers
 
 import matplotlib.pyplot as plt
@@ -42,8 +40,8 @@ parser.add_option("--network", dest="network", help="Base network to use. Suppor
 (options, args) = parser.parse_args()
 
 if not options.test_path:   # if filename is not given
-	# options.test_path = "../data/TableBank/Detection/images/"
-	options.test_path = "./test/"
+	options.test_path = "/home/aptus/Clients/Pinetree/Stax/signature_detection/Tobacco800_SinglePage/SinglePageTIF/"
+	# options.test_path = "./test/"
 
 config_output_filename = options.config_filename
 

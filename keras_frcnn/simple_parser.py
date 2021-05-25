@@ -17,17 +17,9 @@ def get_data(input_path):
 
 		for i,line in enumerate(f):
 
-			# if i == 100:
-			# 	break
-
 			try:
 				line_split = line.strip().split(',')
 				(filename,x1,y1,x2,y2,class_name) = line_split
-
-				if len(filename.split('/')) != 12:
-					continue
-
-				filename = base_dir + filename.split('/')[-1]
 
 			except ValueError:
 				print(f"Could not parse line {i}: " + line)

@@ -154,8 +154,8 @@ except:
 	print('Could not load pretrained model weights. Weights can be found in the keras application folder \
 		https://github.com/fchollet/keras/tree/master/keras/applications')
 
-rpn_optimizer = Adam(lr=1e-5)
-class_optimizer = Adam(lr=1e-5)
+rpn_optimizer = Adam(learning_rate=1e-5)
+class_optimizer = Adam(learning_rate=1e-5)
 
 # RPN losses
 rpn_cls_loss = loss_funcs.rpn_loss_cls(num_anchors)
