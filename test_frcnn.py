@@ -152,7 +152,7 @@ for idx, img_name in enumerate(imgs):
 
 	print(img_name)
 	st = time.time()
-	filepath = os.path.join(C.test_path, img_name)
+	filepath = os.path.join(C.test_path, img_name) # type: ignore
 
 	img = cv2.imread(filepath)
 

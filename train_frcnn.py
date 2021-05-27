@@ -149,22 +149,15 @@ best_loss = np.Inf
 class_mapping_inv = {v: k for k, v in class_mapping.items()}
 print('Starting training')
 
-vis = True
-
 # METRICS
 train_acc_metric = tf.keras.metrics.CategoricalAccuracy()
-val_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+train_precision_metric = tf.keras.metrics.Precision()
+train_recall_metric = tf.keras.metrics.Recall()
 
-def f1_metric(y_pred, y_true):
-    # y_true = y_true[:, :, 1:]
-    # y_pred = y_pred[:, :, 1:]
-    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-    precision = true_positives / (predicted_positives + K.epsilon())
-    recall = true_positives / (possible_positives + K.epsilon())
-    f1_val = 2 * (precision * recall) / (precision + recall + K.epsilon())
-    return f1_val
+val_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+val_precision_metric = tf.keras.metrics.Precision()
+val_recall_metric = tf.keras.metrics.Recall()
+
 
 def train_step(X, Y, img_data):
 
@@ -181,7 +174,7 @@ def train_step(X, Y, img_data):
 
 	R = roi_helpers.rpn_to_roi(P_rpn[0].numpy(), P_rpn[1].numpy(), C, "tf", use_regr=True, overlap_thresh=0.7, max_boxes=300)
 	# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
-	X2, Y1, Y2, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
+	X2, Y1, Y2, ious = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
 	if X2 is None:
 		rpn_accuracy_rpn_monitor.append(0)
@@ -232,19 +225,21 @@ def train_step(X, Y, img_data):
 	
 	# Update classification accuracy metric
 	train_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+	train_precision_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+	train_recall_metric.update_state(P_class[0], Y1[:, sel_samples, :])
 
-	loss_class = [loss_class_0, loss_class_1, train_acc_metric.result()]
+	class_metrics = [train_acc_metric.result(), train_precision_metric.result(), train_recall_metric.result()]
+	loss_class = [loss_class_0, loss_class_1]
 	grads = tape.gradient([loss_class_0, loss_class_1], model_classifier.trainable_weights)
 	class_optimizer.apply_gradients(zip(grads, model_classifier.trainable_weights))
 
-	return loss_rpn, loss_class
+	return loss_rpn, loss_class, class_metrics
 
 
 # Get validation accuracy after each epoch
 def computeValidation():
 
-	f1s = np.zeros((len(val_imgs)))
-	for i,_ in enumerate(val_imgs):
+	for _ in enumerate(val_imgs):
 
 		X, Y, img_data = next(data_gen_val)
 		
@@ -258,7 +253,7 @@ def computeValidation():
 		if X2 is None:
 			rpn_accuracy_rpn_monitor.append(0)
 			rpn_accuracy_for_epoch.append(0)
-			return loss_rpn, []
+			return loss_rpn, 0.0, 0.0, 0.0
 
 		neg_samples = np.where(Y1[0, :, -1] == 1)
 		pos_samples = np.where(Y1[0, :, -1] == 0)
@@ -301,13 +296,19 @@ def computeValidation():
 		
 		# Update classification accuracy metric
 		val_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
-		f1s[i] = f1_metric(P_class[0], Y1[:, sel_samples, :])
+		val_precision_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+		val_recall_metric.update_state(P_class[0], Y1[:, sel_samples, :])
 
 	# Get result and reset metric
-	res = val_acc_metric.result()
+	precision = val_precision_metric.result()
+	recall = val_recall_metric.result()
+	f1 = 2 * ( (precision * recall) / (precision + recall) )
+	res = (val_acc_metric.result(), val_precision_metric.result(), val_recall_metric.result(), f1)
 	val_acc_metric.reset_states()
+	val_precision_metric.reset_states()
+	val_recall_metric.reset_states()
 
-	return res, np.mean(f1s)
+	return res
 
 best_loss = inf
 # TRAINING LOOP
@@ -318,7 +319,7 @@ for epoch_num in range(num_epochs):
 
 	while True:
 
-		try:
+		# try:
 
 			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
 				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
@@ -329,7 +330,7 @@ for epoch_num in range(num_epochs):
 
 
 			X, Y, img_data = next(data_gen_train)
-			loss_rpn, loss_class = train_step(X, Y, img_data)
+			loss_rpn, loss_class, class_metrics = train_step(X, Y, img_data)
 
 			if len(loss_class) == 0:
 				continue
@@ -339,7 +340,6 @@ for epoch_num in range(num_epochs):
 
 			losses[iter_num, 2] = loss_class[0]
 			losses[iter_num, 3] = loss_class[1]
-			losses[iter_num, 4] = loss_class[2]
 
 			progbar.update(iter_num+1, [('rpn_cls', losses[iter_num, 0]), ('rpn_regr', losses[iter_num, 1]),
 										('detector_cls', losses[iter_num, 2]), ('detector_regr', losses[iter_num, 3])])
@@ -354,21 +354,23 @@ for epoch_num in range(num_epochs):
 				loss_rpn_regr = np.mean(losses[:, 1])
 				loss_class_cls = np.mean(losses[:, 2])
 				loss_class_regr = np.mean(losses[:, 3])
-				class_acc = np.mean(losses[:, 4])
-				val_acc, val_f1 = computeValidation()
+				class_acc = np.mean(class_metrics[0])
+				class_precision = np.mean(class_metrics[1])
+				class_recall = np.mean(class_metrics[2])
+				val_acc, val_precision, val_recall, val_f1 = computeValidation()
 
 				mean_overlapping_bboxes = float(sum(rpn_accuracy_for_epoch)) / len(rpn_accuracy_for_epoch)
 				rpn_accuracy_for_epoch = []
 
 				if C.verbose:
 					print(f'\nMean number of bounding boxes from RPN overlapping ground truth boxes: {mean_overlapping_bboxes}')
-					print(f'Training accuracy for bounding boxes from RPN: {class_acc}')
-					print(f'Validation accuracy for bounding boxes from RPN: {val_acc}')
-					print(f'Validation F1 for bounding boxes from RPN: {val_f1}')
-					print(f'Loss RPN classifier: {loss_rpn_cls}')
-					print(f'Loss RPN regression: {loss_rpn_regr}')
-					print(f'Loss Detector classifier: {loss_class_cls}')
-					print(f'Loss Detector regression: {loss_class_regr}')
+					print(f'Training accuracy for bounding boxes: {class_acc}')
+					print(f'Training precision for bounding boxes: {class_precision}')
+					print(f'Training recall for bounding boxes: {class_recall}')
+					print(f'Validation accuracy for bounding boxes: {val_acc}')
+					print(f'Validation precision for bounding boxes: {val_precision}')
+					print(f'Validation recall for bounding boxes: {val_recall}')
+					print(f'Validation f1 for bounding boxes: {val_f1}')
 					print(f'Elapsed time: {time.time() - start_time}')
 
 				curr_loss = loss_rpn_cls + loss_rpn_regr + loss_class_cls + loss_class_regr
@@ -381,8 +383,9 @@ for epoch_num in range(num_epochs):
 					model_all.save_weights(C.model_path)
 
 				break
-		except:
-			model_all.save_weights("model_weights/emergency_model_frcnn.hdf5")
-			break
+
+		# except Exception as e:
+		# 	model_all.save_weights("model_weights/emergency_model_frcnn.hdf5")
+		# 	break
 
 print('Training complete, exiting.')
