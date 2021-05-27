@@ -18,19 +18,13 @@ def get_img_output_length(width, height):
 
 def nn_base(input_tensor=None, trainable=False):
 
-
     # Determine proper input shape
     input_shape = (None, None, 3)
 
     if input_tensor is None:
         img_input = Input(shape=input_shape)
     else:
-        if not K.is_keras_tensor(input_tensor):
-            img_input = Input(tensor=input_tensor, shape=input_shape)
-        else:
-            img_input = input_tensor
-
-    bn_axis = 3
+        img_input = input_tensor
 
     # Block 1
     x = Conv2D(64, (3, 3), activation='relu', padding='same', name='block1_conv1')(img_input)
