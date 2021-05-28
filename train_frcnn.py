@@ -251,12 +251,12 @@ def computeValidation():
 		X2, Y1, _, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
 		if X2 is None:
-			rpn_accuracy_rpn_monitor.append(0)
-			rpn_accuracy_for_epoch.append(0)
-			return loss_rpn, 0.0, 0.0, 0.0
-
-		neg_samples = np.where(Y1[0, :, -1] == 1)
-		pos_samples = np.where(Y1[0, :, -1] == 0)
+			neg_samples = (np.array([]),)
+			pos_samples = (np.array([]),)
+			continue
+		else:
+			neg_samples = np.where(Y1[0, :, -1] == 1)
+			pos_samples = np.where(Y1[0, :, -1] == 0)
 
 		if len(neg_samples) > 0:
 			neg_samples = neg_samples[0]
@@ -267,9 +267,6 @@ def computeValidation():
 			pos_samples = pos_samples[0]
 		else:
 			pos_samples = []
-		
-		rpn_accuracy_rpn_monitor.append(len(pos_samples))
-		rpn_accuracy_for_epoch.append((len(pos_samples)))
 
 		if C.num_rois > 1:
 			if len(pos_samples) < C.num_rois//2:
