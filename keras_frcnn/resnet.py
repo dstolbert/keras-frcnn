@@ -50,6 +50,7 @@ def identity_block(input_tensor, kernel_size, filters, stage, block, trainable=T
 
     x = Add()([x, input_tensor])
     x = Activation('relu')(x)
+    
     return x
 
 

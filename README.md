@@ -2,6 +2,13 @@
 Keras implementation of Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks.
 cloned from https://github.com/yhenon/keras-frcnn/
 
+** UPDATES **
+
+1. Both VGG and ResNet options are now working with Tensorflow 2.5
+2. Lots of bug fixes from original repo
+3. Removed all Keras dependencies, everything now works through tf.keras
+4. Removed support for Theano
+5. Updated metrics, though not all of these have been tested yet
 
 
 USAGE:
