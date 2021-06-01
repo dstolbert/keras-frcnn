@@ -168,6 +168,7 @@ def train_step(X, Y, img_data):
 		P_rpn = model_rpn(X)
 		loss_rpn_0 = rpn_cls_loss(Y[0], P_rpn[0])
 		loss_rpn_1 = rpn_regr_loss(Y[1], P_rpn[1])
+
 	loss_rpn = [loss_rpn_0, loss_rpn_1]
 	grads = tape.gradient([loss_rpn_0, loss_rpn_1], model_rpn.trainable_weights)
 	rpn_optimizer.apply_gradients(zip(grads, model_rpn.trainable_weights))
@@ -242,7 +243,7 @@ def train_step(X, Y, img_data):
 # Get validation accuracy after each epoch
 def computeValidation():
 
-	for _ in enumerate(val_imgs):
+	for _ in range(len(val_imgs)):
 
 		try:
 
@@ -251,21 +252,24 @@ def computeValidation():
 			# RPN
 			P_rpn = model_rpn(X)
 
+			loss_rpn_0 = rpn_cls_loss(Y[0], P_rpn[0])
+			loss_rpn_1 = rpn_regr_loss(Y[1], P_rpn[1])
+			loss_rpn = [loss_rpn_0, loss_rpn_1]
+
 			R = roi_helpers.rpn_to_roi(P_rpn[0].numpy(), P_rpn[1].numpy(), C, "tf", use_regr=True, overlap_thresh=0.7, max_boxes=300)
 			# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
 			X2, Y1, _, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
-			if Y1 is None:
-				continue
-
 			if X2 is None:
-				val_acc_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
-				val_precision_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
-				val_recall_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
+
+				# Punish the metrics when no boxes are found
+				val_acc_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
+				val_precision_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
+				val_recall_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
 				continue
-			else:
-				neg_samples = np.where(Y1[0, :, -1] == 1)
-				pos_samples = np.where(Y1[0, :, -1] == 0)
+			
+			neg_samples = np.where(Y1[0, :, -1] == 1)
+			pos_samples = np.where(Y1[0, :, -1] == 0)
 
 			if len(neg_samples[0]) > 0:
 				neg_samples = list(neg_samples[0])
@@ -287,7 +291,8 @@ def computeValidation():
 				except:
 					if len(neg_samples) > 0:
 						selected_neg_samples = list(np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=True))
-					selected_neg_samples = []
+					else:
+						selected_neg_samples = []
 
 				sel_samples = selected_pos_samples + selected_neg_samples
 			else:
@@ -309,9 +314,9 @@ def computeValidation():
 
 		except Exception as e:
 			print(f"WARNING: error in validation step -> ", e)
-			val_acc_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
-			val_precision_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
-			val_recall_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
+			val_acc_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
+			val_precision_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
+			val_recall_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
 
 	# Get result and reset metric
 	precision = np.mean(val_precision_metric.result())
@@ -399,6 +404,7 @@ for epoch_num in range(num_epochs):
 				break
 
 		except Exception as e:
+			print("WARNING: error in training step -> ", e)
 			# model_all.save_weights("model_weights/emergency_model_frcnn.hdf5")
 			break
 

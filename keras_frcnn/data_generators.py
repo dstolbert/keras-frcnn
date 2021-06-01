@@ -327,7 +327,7 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, backen
 					y_rpn_cls = np.transpose(y_rpn_cls, (0, 2, 3, 1))
 					y_rpn_regr = np.transpose(y_rpn_regr, (0, 2, 3, 1))
 
-				yield np.copy(x_img), [np.copy(y_rpn_cls), np.copy(y_rpn_regr)], img_data_aug
+				yield np.copy(x_img), [np.copy(y_rpn_cls).astype("float32"), np.copy(y_rpn_regr).astype("float32")], img_data_aug
 
 			except Exception as e:
 				print(e)
