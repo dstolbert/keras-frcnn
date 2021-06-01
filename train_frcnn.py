@@ -180,7 +180,7 @@ def train_step(X, Y, img_data):
 	if X2 is None:
 		rpn_accuracy_rpn_monitor.append(0)
 		rpn_accuracy_for_epoch.append(0)
-		return loss_rpn, [], []
+		return loss_rpn, [0.0, 0.0], [0.0, 0.0, 0.0]
 
 	neg_samples = np.where(Y1[0, :, -1] == 1)
 	pos_samples = np.where(Y1[0, :, -1] == 0)
@@ -196,7 +196,7 @@ def train_step(X, Y, img_data):
 		pos_samples = []
 	
 	rpn_accuracy_rpn_monitor.append(len(pos_samples))
-	rpn_accuracy_for_epoch.append((len(pos_samples)))
+	rpn_accuracy_for_epoch.append(len(pos_samples))
 
 	if C.num_rois > 1:
 		if len(pos_samples) < C.num_rois//2:
@@ -261,11 +261,6 @@ def computeValidation():
 			X2, Y1, _, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
 			if X2 is None:
-
-				# Punish the metrics when no boxes are found
-				val_acc_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
-				val_precision_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
-				val_recall_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
 				continue
 			
 			neg_samples = np.where(Y1[0, :, -1] == 1)
@@ -314,9 +309,6 @@ def computeValidation():
 
 		except Exception as e:
 			print(f"WARNING: error in validation step -> ", e)
-			val_acc_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
-			val_precision_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
-			val_recall_metric.update_state(np.ones((1,2,4)) * -1, np.zeros((1,2,4)))
 
 	# Get result and reset metric
 	precision = np.mean(val_precision_metric.result())
@@ -350,9 +342,6 @@ for epoch_num in range(num_epochs):
 
 			X, Y, img_data = next(data_gen_train)
 			loss_rpn, loss_class, class_metrics = train_step(X, Y, img_data)
-
-			if len(loss_class) == 0:
-				continue
 
 			losses[iter_num, 0] = loss_rpn[0]
 			losses[iter_num, 1] = loss_rpn[1]
