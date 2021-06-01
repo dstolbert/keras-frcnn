@@ -140,7 +140,6 @@ num_epochs = C.epochs
 iter_num = 0
 
 losses = np.zeros((epoch_length, 5))
-rpn_accuracy_rpn_monitor = []
 rpn_accuracy_for_epoch = []
 start_time = time.time()
 
@@ -178,9 +177,8 @@ def train_step(X, Y, img_data):
 	X2, Y1, Y2, ious = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
 	if X2 is None:
-		rpn_accuracy_rpn_monitor.append(0)
 		rpn_accuracy_for_epoch.append(0)
-		return loss_rpn, [0.0, 0.0], [0.0, 0.0, 0.0]
+		return loss_rpn, [], []
 
 	neg_samples = np.where(Y1[0, :, -1] == 1)
 	pos_samples = np.where(Y1[0, :, -1] == 0)
@@ -195,7 +193,6 @@ def train_step(X, Y, img_data):
 	else:
 		pos_samples = []
 	
-	rpn_accuracy_rpn_monitor.append(len(pos_samples))
 	rpn_accuracy_for_epoch.append(len(pos_samples))
 
 	if C.num_rois > 1:
@@ -243,7 +240,11 @@ def train_step(X, Y, img_data):
 # Get validation accuracy after each epoch
 def computeValidation():
 
-	for _ in range(len(val_imgs)):
+	# Track losses to compute mean over validation set
+	rpn_losses = []
+	cls_losses = []
+
+	for i in range(len(val_imgs)):
 
 		try:
 
@@ -254,11 +255,11 @@ def computeValidation():
 
 			loss_rpn_0 = rpn_cls_loss(Y[0], P_rpn[0])
 			loss_rpn_1 = rpn_regr_loss(Y[1], P_rpn[1])
-			loss_rpn = [loss_rpn_0, loss_rpn_1]
+			rpn_losses.append(loss_rpn_0 + loss_rpn_1)
 
 			R = roi_helpers.rpn_to_roi(P_rpn[0].numpy(), P_rpn[1].numpy(), C, "tf", use_regr=True, overlap_thresh=0.7, max_boxes=300)
 			# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
-			X2, Y1, _, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
+			X2, Y1, Y2, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
 			if X2 is None:
 				continue
@@ -301,6 +302,11 @@ def computeValidation():
 
 			# Classification model
 			P_class = model_classifier([X, X2[:, sel_samples, :]])
+
+			# Losses
+			loss_class_0 = class_cls_loss(Y1[:, sel_samples, :], P_class[0])
+			loss_class_1 = class_regr_loss(Y2[:, sel_samples, :], P_class[1])
+			cls_losses.append(loss_class_0 + loss_class_1)
 			
 			# Update classification accuracy metric
 			val_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
@@ -319,7 +325,7 @@ def computeValidation():
 	val_precision_metric.reset_states()
 	val_recall_metric.reset_states()
 
-	return res
+	return (np.mean(rpn_losses) + np.mean(cls_losses), *res)
 
 best_loss = inf
 # TRAINING LOOP
@@ -332,16 +338,11 @@ for epoch_num in range(num_epochs):
 
 		try:
 
-			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
-				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
-				rpn_accuracy_rpn_monitor = []
-				print(f'\nAverage number of overlapping bounding boxes from RPN = {mean_overlapping_bboxes} for {epoch_length} previous iterations')
-				if mean_overlapping_bboxes == 0:
-					print('\nRPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
-
-
 			X, Y, img_data = next(data_gen_train)
 			loss_rpn, loss_class, class_metrics = train_step(X, Y, img_data)
+
+			if len(loss_class) == 0:
+				continue
 
 			losses[iter_num, 0] = loss_rpn[0]
 			losses[iter_num, 1] = loss_rpn[1]
@@ -365,7 +366,7 @@ for epoch_num in range(num_epochs):
 				class_acc = np.mean(class_metrics[0])
 				class_precision = np.mean(class_metrics[1])
 				class_recall = np.mean(class_metrics[2])
-				val_acc, val_precision, val_recall, val_f1 = computeValidation()
+				val_loss, val_acc, val_precision, val_recall, val_f1 = computeValidation()
 
 				mean_overlapping_bboxes = float(sum(rpn_accuracy_for_epoch)) / len(rpn_accuracy_for_epoch)
 				rpn_accuracy_for_epoch = []
@@ -375,19 +376,20 @@ for epoch_num in range(num_epochs):
 					print(f'Training accuracy for bounding boxes: {class_acc}')
 					print(f'Training precision for bounding boxes: {class_precision}')
 					print(f'Training recall for bounding boxes: {class_recall}')
+					print(f'Validation loss: {val_loss}')
 					print(f'Validation accuracy for bounding boxes: {val_acc}')
 					print(f'Validation precision for bounding boxes: {val_precision}')
 					print(f'Validation recall for bounding boxes: {val_recall}')
 					print(f'Validation f1 for bounding boxes: {val_f1}')
 					print(f'Elapsed time: {time.time() - start_time}')
 
-				curr_loss = loss_rpn_cls + loss_rpn_regr + loss_class_cls + loss_class_regr
+				curr_loss = val_loss
 				iter_num = 0
 				start_time = time.time()
 
 				# Use best val acc for saving model
 				if curr_loss < best_loss:
-					best_loss= curr_loss
+					best_loss = curr_loss
 					model_all.save_weights(C.model_path)
 
 				break
