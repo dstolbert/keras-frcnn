@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Tensorboard logs
+logs/*
+
 # Distribution / packaging
 .Python
 env/
@@ -101,3 +104,7 @@ config.json
 
 # Test images
 *.png
+
+# Zipped files
+*.zip
+*.7z

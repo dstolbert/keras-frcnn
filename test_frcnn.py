@@ -36,7 +36,7 @@ if not C.train_path:
 	raise ValueError
 
 nn: Any = None
-if C.network == 'resnet50':
+if C.network == 'resnet':
 	from keras_frcnn import resnet
 	nn = resnet
 elif C.network == 'vgg':
@@ -102,7 +102,7 @@ class_mapping = {v: k for k, v in class_mapping.items()}
 print(class_mapping)
 class_to_color = {class_mapping[v]: np.random.randint(0, 255, 3) for v in class_mapping}
 
-if C.network == 'resnet50':
+if C.network == 'resnet':
 	num_features = 1024
 elif C.network == 'vgg':
 	num_features = 512

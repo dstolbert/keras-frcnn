@@ -184,13 +184,13 @@ def train_step(X, Y, img_data):
 	neg_samples = np.where(Y1[0, :, -1] == 1)
 	pos_samples = np.where(Y1[0, :, -1] == 0)
 
-	if len(neg_samples) > 0:
-		neg_samples = neg_samples[0]
+	if len(neg_samples[0]) > 0:
+		neg_samples = list(neg_samples[0])
 	else:
 		neg_samples = []
 
-	if len(pos_samples) > 0:
-		pos_samples = pos_samples[0]
+	if len(pos_samples[0]) > 0:
+		pos_samples = list(pos_samples[0])
 	else:
 		pos_samples = []
 	
@@ -199,19 +199,22 @@ def train_step(X, Y, img_data):
 
 	if C.num_rois > 1:
 		if len(pos_samples) < C.num_rois//2:
-			selected_pos_samples = pos_samples.tolist()
+			selected_pos_samples = pos_samples
 		else:
-			selected_pos_samples = np.random.choice(pos_samples, C.num_rois//2, replace=False).tolist()
+			selected_pos_samples = list(np.random.choice(pos_samples, C.num_rois//2, replace=False))
 		try:
-			selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=False).tolist()
+			selected_neg_samples = list(np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=False))
 		except:
-			selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=True).tolist()
+			if len(neg_samples) > 0:
+				selected_neg_samples = list(np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=True))
+			else:
+				selected_neg_samples = []
 
 		sel_samples = selected_pos_samples + selected_neg_samples
 	else:
 		# in the extreme case where num_rois = 1, we pick a random pos or neg sample
-		selected_pos_samples = pos_samples.tolist()
-		selected_neg_samples = neg_samples.tolist()
+		selected_pos_samples = pos_samples
+		selected_neg_samples = neg_samples
 		if np.random.randint(0, 2):
 			sel_samples = random.choice(neg_samples)
 		else:
@@ -241,66 +244,80 @@ def computeValidation():
 
 	for _ in enumerate(val_imgs):
 
-		X, Y, img_data = next(data_gen_val)
-		
-		# RPN
-		P_rpn = model_rpn(X)
+		try:
 
-		R = roi_helpers.rpn_to_roi(P_rpn[0].numpy(), P_rpn[1].numpy(), C, "tf", use_regr=True, overlap_thresh=0.7, max_boxes=300)
-		# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
-		X2, Y1, _, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
+			X, Y, img_data = next(data_gen_val)
+			
+			# RPN
+			P_rpn = model_rpn(X)
 
-		if X2 is None:
-			neg_samples = (np.array([]),)
-			pos_samples = (np.array([]),)
-			continue
-		else:
-			neg_samples = np.where(Y1[0, :, -1] == 1)
-			pos_samples = np.where(Y1[0, :, -1] == 0)
+			R = roi_helpers.rpn_to_roi(P_rpn[0].numpy(), P_rpn[1].numpy(), C, "tf", use_regr=True, overlap_thresh=0.7, max_boxes=300)
+			# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
+			X2, Y1, _, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
 
-		if len(neg_samples) > 0:
-			neg_samples = neg_samples[0]
-		else:
-			neg_samples = []
+			if Y1 is None:
+				continue
 
-		if len(pos_samples) > 0:
-			pos_samples = pos_samples[0]
-		else:
-			pos_samples = []
-
-		if C.num_rois > 1:
-			if len(pos_samples) < C.num_rois//2:
-				selected_pos_samples = pos_samples.tolist()
+			if X2 is None:
+				val_acc_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
+				val_precision_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
+				val_recall_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
+				continue
 			else:
-				selected_pos_samples = np.random.choice(pos_samples, C.num_rois//2, replace=False).tolist()
-			try:
-				selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=False).tolist()
-			except:
-				selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=True).tolist()
+				neg_samples = np.where(Y1[0, :, -1] == 1)
+				pos_samples = np.where(Y1[0, :, -1] == 0)
 
-			sel_samples = selected_pos_samples + selected_neg_samples
-		else:
-			# in the extreme case where num_rois = 1, we pick a random pos or neg sample
-			selected_pos_samples = pos_samples.tolist()
-			selected_neg_samples = neg_samples.tolist()
-			if np.random.randint(0, 2):
-				sel_samples = random.choice(neg_samples)
+			if len(neg_samples[0]) > 0:
+				neg_samples = list(neg_samples[0])
 			else:
-				sel_samples = random.choice(pos_samples)
+				neg_samples = []
 
-		# Classification model
-		P_class = model_classifier([X, X2[:, sel_samples, :]])
-		
-		# Update classification accuracy metric
-		val_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
-		val_precision_metric.update_state(P_class[0], Y1[:, sel_samples, :])
-		val_recall_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+			if len(pos_samples[0]) > 0:
+				pos_samples = list(pos_samples[0])
+			else:
+				pos_samples = []
+
+			if C.num_rois > 1:
+				if len(pos_samples) < C.num_rois//2:
+					selected_pos_samples = pos_samples
+				else:
+					selected_pos_samples = list(np.random.choice(pos_samples, C.num_rois//2, replace=False))
+				try:
+					selected_neg_samples = list(np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=False))
+				except:
+					if len(neg_samples) > 0:
+						selected_neg_samples = list(np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples), replace=True))
+					selected_neg_samples = []
+
+				sel_samples = selected_pos_samples + selected_neg_samples
+			else:
+				# in the extreme case where num_rois = 1, we pick a random pos or neg sample
+				selected_pos_samples = pos_samples
+				selected_neg_samples = neg_samples
+				if np.random.randint(0, 2):
+					sel_samples = random.choice(neg_samples)
+				else:
+					sel_samples = random.choice(pos_samples)
+
+			# Classification model
+			P_class = model_classifier([X, X2[:, sel_samples, :]])
+			
+			# Update classification accuracy metric
+			val_acc_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+			val_precision_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+			val_recall_metric.update_state(P_class[0], Y1[:, sel_samples, :])
+
+		except Exception as e:
+			print(f"WARNING: error in validation step -> ", e)
+			val_acc_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
+			val_precision_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
+			val_recall_metric.update_state(np.ones(Y1[:, sel_samples, :].shape) * -1, Y1[:, sel_samples, :])
 
 	# Get result and reset metric
-	precision = val_precision_metric.result()
-	recall = val_recall_metric.result()
+	precision = np.mean(val_precision_metric.result())
+	recall = np.mean(val_recall_metric.result())
 	f1 = 2 * ( (precision * recall) / (precision + recall) )
-	res = (val_acc_metric.result(), val_precision_metric.result(), val_recall_metric.result(), f1)
+	res = (np.mean(val_acc_metric.result()), recall, precision, f1)
 	val_acc_metric.reset_states()
 	val_precision_metric.reset_states()
 	val_recall_metric.reset_states()
@@ -316,7 +333,7 @@ for epoch_num in range(num_epochs):
 
 	while True:
 
-		# try:
+		try:
 
 			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
 				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
@@ -381,8 +398,8 @@ for epoch_num in range(num_epochs):
 
 				break
 
-		# except Exception as e:
-		# 	model_all.save_weights("model_weights/emergency_model_frcnn.hdf5")
-		# 	break
+		except Exception as e:
+			# model_all.save_weights("model_weights/emergency_model_frcnn.hdf5")
+			break
 
 print('Training complete, exiting.')
