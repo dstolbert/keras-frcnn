@@ -4,6 +4,108 @@ import math
 from . import data_generators
 import copy
 
+def preds_to_boxes(p_cls, p_reg, ROIs, bbox_thresh, class_mapping, C):
+
+	bboxes: dict = {}
+	probs: dict = {}
+
+	for ii in range(p_cls.shape[1]):
+
+			if np.max(p_cls[0, ii, :]) < bbox_thresh or np.argmax(p_cls[0, ii, :]) == (p_cls.shape[2] - 1):
+				continue
+
+			cls_name = class_mapping[np.argmax(p_cls[0, ii, :])]
+
+			if cls_name not in bboxes:
+				bboxes[cls_name] = []
+				probs[cls_name] = []
+
+			(x, y, w, h) = ROIs[0, ii, :]
+
+			cls_num = np.argmax(p_cls[0, ii, :])
+			try:
+				(tx, ty, tw, th) = p_reg[0, ii, 4*cls_num:4*(cls_num+1)]
+				tx /= C.classifier_regr_std[0]
+				ty /= C.classifier_regr_std[1]
+				tw /= C.classifier_regr_std[2]
+				th /= C.classifier_regr_std[3]
+				x, y, w, h = apply_regr(x, y, w, h, tx, ty, tw, th)
+			except:
+				pass
+			bboxes[cls_name].append([C.rpn_stride*x, C.rpn_stride*y, C.rpn_stride*(x+w), C.rpn_stride*(y+h)])
+			probs[cls_name].append(np.max(p_cls[0, ii, :]))
+
+	return bboxes, probs
+
+
+def calc_stats(bboxes, img_data, C, class_mapping):
+
+	# Stats to update
+	tps = 0
+	fps = 0
+	fns = 0
+	ious = []
+
+	gt_boxes = img_data['bboxes']
+	(width, height) = (img_data['width'], img_data['height'])
+	# get image dimensions for resizing
+	(resized_width, resized_height) = data_generators.get_new_img_size(width, height, C.im_size)
+
+	# Create a map from class -> resized ground truth boxes
+	gt_map = {}
+	for _, bbox in enumerate(gt_boxes):
+
+		# get the GT box coordinates, and resize to account for image resizing
+		box = [
+			int(round(bbox['x1'] * (resized_width / float(width)))),
+			int(round(bbox['x2'] * (resized_width / float(width)))),
+			int(round(bbox['y1'] * (resized_height / float(height)))),
+			int(round(bbox['y2'] * (resized_height / float(height))))
+		]
+
+		# Track resized box and whether or not we have found it
+		gt_map[bbox["class"]] = gt_map.get(bbox["class"], []) + [{
+			"box": box, 
+			"matched": False
+		}]
+
+		# Increment false negatives
+		fns += 1
+
+	# For each class, get predictions
+	for key, pred_boxes in bboxes.items():
+
+		# For each predicted box, compute iou, sum the number of true/false positives
+		for pred_box in pred_boxes:
+
+			# Compare the predicted box against all ground truth boxes until we get a match
+			# A match will be considerd given any overlap with a gt_box
+			matched = False
+			for i, gt_box in enumerate(gt_map[key]):
+
+				iou = data_generators.iou(pred_box, gt_box["box"])
+				ious.append(iou)
+
+				if (iou > C.classifier_min_overlap):
+					
+					# Remove a false negative and add true positive if first time matching this box
+					if not gt_map[key][i]["matched"]:
+						gt_map[key][i]["matched"] = True
+						tps += 1
+						fns -= 1
+
+					matched = True
+					break
+			
+			if not matched:
+				fps += 1
+				
+	# Compute stats
+	precision = tps / (tps + fps + 1e-7)
+	recall = tps / (tps + fns + 1e-7)
+
+	return precision, recall
+
 
 def calc_iou(R, img_data, C, class_mapping):
 
